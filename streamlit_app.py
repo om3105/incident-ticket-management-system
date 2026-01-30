@@ -74,7 +74,8 @@ def dashboard():
             if tid:
                 ticket = Ticket.get_by_id(db_manager, tid)
                 if ticket:
-                    # Access Control for detail view (User can see their own, Agents/Admins all)
+                    # Access Control for detail view
+                    # Users can see their own. Staff (Admin/Agent) can see all.
                     if st.session_state.user['role'] == 'user' and ticket.created_by != st.session_state.user['id']:
                         st.error("You don't have permission to view this ticket.")
                     else:
@@ -83,14 +84,15 @@ def dashboard():
                         st.write(f"**Status:** {ticket.status} | **Priority:** {ticket.priority}")
                         st.write(f"**Created At:** {ticket.created_at}")
                         
-                        # Update Status (Agents/Admins only)
-                        if st.session_state.user['role'] in ['agent', 'admin']:
-                            st.write("---")
-                            new_stat = st.selectbox("Update Status", Config.VALID_STATUSES, index=Config.VALID_STATUSES.index(ticket.status))
-                            if st.button("Update Status"):
-                                ticket.update_status(db_manager, new_stat)
-                                st.success("Status updated!")
-                                st.rerun()
+                        # Update Status Control
+                        # Logic: Staff can update ANY ticket. Users can update THEIR OWN ticket.
+                        st.write("---")
+                        new_stat = st.selectbox("Update Status", Config.VALID_STATUSES, index=Config.VALID_STATUSES.index(ticket.status))
+                        
+                        if st.button("Update Status"):
+                            ticket.update_status(db_manager, new_stat)
+                            st.success("Status updated!")
+                            st.rerun()
                 else:
                     st.warning("Ticket not found.")
         else:
@@ -120,9 +122,18 @@ def main():
         login_page()
     else:
         st.sidebar.title(f"Welcome, {st.session_state.user['username']}")
-        st.sidebar.write(f"Role: {st.session_state.user['role']}")
+        role = st.session_state.user['role']
+        st.sidebar.write(f"Role: {role}")
         
-        page = st.sidebar.radio("Navigation", ["Dashboard", "New Ticket"])
+        # Navigation Logic
+        options = ["Dashboard"]
+        
+        # Only 'user' role can create tickets. 
+        # Agents/Admins are restricted to Dashboard only.
+        if role == 'user':
+            options.append("New Ticket")
+        
+        page = st.sidebar.radio("Navigation", options)
         
         if st.sidebar.button("Logout"):
             st.session_state.user = None
