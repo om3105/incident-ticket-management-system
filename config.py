@@ -6,6 +6,9 @@ load_dotenv()
 
 class Config:
     # Database Configuration
+    DB_TYPE = os.environ.get('DB_TYPE') or 'sqlite'
+    SQLITE_DB = os.environ.get('SQLITE_DB') or 'tickets.db'
+    
     MYSQL_HOST = os.environ.get('MYSQL_HOST') or 'localhost'
     MYSQL_USER = os.environ.get('MYSQL_USER') or 'root'
     MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD')

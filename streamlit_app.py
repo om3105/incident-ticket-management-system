@@ -1,32 +1,29 @@
 import streamlit as st
-import requests
 import pandas as pd
+from db_manager import DBManager
+from models import User, Ticket
+from config import Config
 
-BASE_URL = "http://127.0.0.1:5001/api"
+# Initialize Database
+@st.cache_resource
+def get_db_manager():
+    db = DBManager()
+    db.initialize_database()
+    return db
 
-if 'token' not in st.session_state:
-    st.session_state.token = None
+db_manager = get_db_manager()
+
 if 'user' not in st.session_state:
     st.session_state.user = None
-
-def api_request(method, endpoint, data=None, params=None):
-    headers = {'Authorization': f"Bearer {st.session_state.token}"} if st.session_state.token else {}
-    try:
-        if method == 'GET': return requests.get(f"{BASE_URL}{endpoint}", headers=headers, params=params)
-        if method == 'POST': return requests.post(f"{BASE_URL}{endpoint}", headers=headers, json=data)
-        if method == 'PUT': return requests.put(f"{BASE_URL}{endpoint}", headers=headers, json=data)
-    except: return None
 
 def login_page():
     st.header("Login")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        res = api_request('POST', '/auth/login', {'username': username, 'password': password})
-        if res and res.status_code == 200:
-            data = res.json()
-            st.session_state.token = data['token']
-            st.session_state.user = data['user']
+        user = User.get_by_username(db_manager, username)
+        if user and User.verify_password(password, user.password_hash):
+            st.session_state.user = user.to_dict()
             st.rerun()
         else:
             st.error("Invalid credentials")
@@ -37,61 +34,104 @@ def login_page():
     new_pass = st.text_input("New Password", type="password")
     role = st.selectbox("Role", ["user", "agent", "admin"])
     if st.button("Register"):
-        res = api_request('POST', '/auth/register', {'username': new_user, 'email': new_email, 'password': new_pass, 'role': role})
-        if res and res.status_code == 201: st.success("Registered! Please login.")
+        try:
+            User.create_user(db_manager, new_user, new_email, new_pass, role)
+            st.success("Registered! Please login.")
+        except Exception as e:
+            st.error(f"Error: {e}")
 
 def dashboard():
     st.header("Dashboard")
-    status = st.selectbox("Filter Status", ["All", "open", "in_progress", "resolved", "closed"])
-    priority = st.selectbox("Filter Priority", ["All", "low", "medium", "high", "critical"])
     
-    params = {}
-    if status != "All": params['status'] = status
-    if priority != "All": params['priority'] = priority
+    # Filters
+    status = st.selectbox("Filter Status", ["All"] + Config.VALID_STATUSES)
+    priority = st.selectbox("Filter Priority", ["All"] + Config.VALID_PRIORITIES)
     
-    res = api_request('GET', '/tickets', params=params)
-    if res and res.status_code == 200:
-        tickets = res.json().get('tickets', [])
+    # Build filters
+    filters = {}
+    if st.session_state.user['role'] == 'user':
+        filters['created_by'] = st.session_state.user['id']
+        
+    if status != "All": filters['status'] = status
+    if priority != "All": filters['priority'] = priority
+    
+    # Fetch tickets
+    try:
+        tickets = Ticket.get_all_tickets(db_manager, filters)
         if tickets:
-            df = pd.DataFrame(tickets)
-            st.dataframe(df[['id', 'title', 'status', 'priority', 'created_at']])
+            data = [t.to_dict() for t in tickets]
+            df = pd.DataFrame(data)
+            # Reorder columns for better view
+            cols = ['id', 'title', 'priority', 'status', 'created_at']
+            if 'assignee' in df.columns: cols.append('assignee')
+            st.dataframe(df[cols] if set(cols).issubset(df.columns) else df)
             
-            tid = st.number_input("Ticket ID", min_value=1, step=1)
+            # Ticket Details & Update
+            st.divider()
+            st.subheader("Ticket Details")
+            tid = st.number_input("Enter Ticket ID to view/edit", min_value=1, step=1)
+            
             if tid:
-                t_res = api_request('GET', f'/tickets/{tid}')
-                if t_res and t_res.status_code == 200:
-                    t = t_res.json().get('ticket')
-                    st.write(f"Title: {t['title']}")
-                    st.write(f"Desc: {t['description']}")
-                    st.write(f"Status: {t['status']}")
-                    
-                    if st.session_state.user['role'] in ['agent', 'admin']:
-                        new_stat = st.selectbox("New Status", ["open", "in_progress", "resolved", "closed"])
-                        if st.button("Update"):
-                            api_request('PUT', f'/tickets/{tid}', {'status': new_stat})
-                            st.rerun()
+                ticket = Ticket.get_by_id(db_manager, tid)
+                if ticket:
+                    # Access Control for detail view (User can see their own, Agents/Admins all)
+                    if st.session_state.user['role'] == 'user' and ticket.created_by != st.session_state.user['id']:
+                        st.error("You don't have permission to view this ticket.")
+                    else:
+                        st.write(f"**Title:** {ticket.title}")
+                        st.write(f"**Description:** {ticket.description}")
+                        st.write(f"**Status:** {ticket.status} | **Priority:** {ticket.priority}")
+                        st.write(f"**Created At:** {ticket.created_at}")
+                        
+                        # Update Status (Agents/Admins only)
+                        if st.session_state.user['role'] in ['agent', 'admin']:
+                            st.write("---")
+                            new_stat = st.selectbox("Update Status", Config.VALID_STATUSES, index=Config.VALID_STATUSES.index(ticket.status))
+                            if st.button("Update Status"):
+                                ticket.update_status(db_manager, new_stat)
+                                st.success("Status updated!")
+                                st.rerun()
+                else:
+                    st.warning("Ticket not found.")
+        else:
+            st.info("No tickets found.")
+            
+    except Exception as e:
+        st.error(f"Error fetching tickets: {e}")
 
 def create_ticket():
     st.header("New Ticket")
     title = st.text_input("Title")
     desc = st.text_area("Description")
-    prio = st.selectbox("Priority", ["low", "medium", "high", "critical"])
-    if st.button("Submit"):
-        res = api_request('POST', '/tickets', {'title': title, 'description': desc, 'priority': prio})
-        if res and res.status_code == 201: st.success("Created!")
+    prio = st.selectbox("Priority", Config.VALID_PRIORITIES)
+    
+    if st.button("Submit Ticket"):
+        if title and desc:
+            try:
+                Ticket.create_ticket(db_manager, title, desc, prio, st.session_state.user['id'])
+                st.success("Ticket created successfully!")
+            except Exception as e:
+                st.error(f"Error: {e}")
+        else:
+            st.warning("Please fill in all fields.")
 
 def main():
-    if not st.session_state.token:
+    if not st.session_state.user:
         login_page()
     else:
-        st.sidebar.write(f"User: {st.session_state.user['username']}")
-        page = st.sidebar.radio("Go to", ["Dashboard", "New Ticket"])
+        st.sidebar.title(f"Welcome, {st.session_state.user['username']}")
+        st.sidebar.write(f"Role: {st.session_state.user['role']}")
+        
+        page = st.sidebar.radio("Navigation", ["Dashboard", "New Ticket"])
+        
         if st.sidebar.button("Logout"):
-            st.session_state.token = None
+            st.session_state.user = None
             st.rerun()
             
-        if page == "Dashboard": dashboard()
-        if page == "New Ticket": create_ticket()
+        if page == "Dashboard":
+            dashboard()
+        elif page == "New Ticket":
+            create_ticket()
 
 if __name__ == "__main__":
     main()
