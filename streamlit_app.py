@@ -124,14 +124,7 @@ def main():
     if not st.session_state.user:
         login_page()
     else:
-        # --- Sidebar: Student / Project Details ---
         st.sidebar.title("Ticket System")
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**Developed By:**")
-        st.sidebar.markdown("Student Name")  # Replace with actual user name if known
-        st.sidebar.markdown("Roll No: 12345")
-        st.sidebar.markdown("---")
-        
         st.sidebar.subheader(f"Welcome, {st.session_state.user['username']}")
         role = st.session_state.user['role']
         st.sidebar.write(f"Role: {role}")
@@ -147,7 +140,6 @@ def main():
         
         page = st.sidebar.radio("Navigation", options)
         
-        st.sidebar.markdown("---")
         if st.sidebar.button("Logout"):
             st.session_state.user = None
             st.rerun()
@@ -157,17 +149,9 @@ def main():
         elif page == "New Ticket":
             create_ticket()
         
-        # --- Project Footer / About ---
-        with st.expander("About this Project"):
-            st.write("""
-            **Incident Ticket Management System**
-            
-            This application demonstrates a complete ticketing lifecycle:
-            1. **Authentication**: Secure Login/Register (BCrypt hashing).
-            2. **RBAC**: Role-Based Access Control (User vs Staff).
-            3. **Database**: Persistent storage using SQLite.
-            4. **CRUD**: Create, Read, Update tickets.
-            """)
+        # --- Footer ---
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("Created by **Om Deo**")
 
 if __name__ == "__main__":
     main()
