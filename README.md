@@ -1,6 +1,6 @@
 # Incident Ticket Management System
 
-## 🎓 Abstract
+## Abstract
 The **Incident Ticket Management System** is a comprehensive software solution designed to streamline the process of reporting, tracking, and resolving IT incidents within an organization. This project aims to replace manual tracking methods with a digital, automated system that ensures accountability and efficiency. It features role-based access control, real-time SLA monitoring, and detailed reporting capabilities.
 
 ##  Features
